@@ -97,14 +97,21 @@ class ObservationHooks:
             results = await self._run_observers_parallel(enabled_observers, event)
             logger.info(f"Observer results: {len(results)} results")
 
-            # Aggregate observations
-            observations = self._aggregate_results(results)
-            logger.info(f"Aggregated observations: {len(observations)}")
+            # Aggregate observations and resolutions
+            observations, resolved = self._aggregate_results(results)
+            logger.info(
+                f"Aggregated: {len(observations)} new observations, {len(resolved)} resolved"
+            )
 
             if observations:
-                # Write to observations tool
+                # Write new observations to tool
                 await self._write_observations(observations)
                 logger.info(f"Created {len(observations)} observation(s)")
+
+            if resolved:
+                # Resolve fixed observations
+                await self._resolve_observations(resolved)
+                logger.info(f"Resolved {len(resolved)} observation(s)")
 
             # Update state hash
             self._last_state_hash = current_hash
@@ -381,17 +388,20 @@ Please review and address these observations in your response.
         existing_section = ""
         if existing_observations:
             existing_list = "\n".join(
-                f"- [{obs.get('severity', 'info')}] {obs.get('source_ref', 'unknown')}: "
-                f"{obs.get('content', '')[:150]}"
+                f"- id=`{obs.get('id', 'unknown')}` [{obs.get('severity', 'info')}] "
+                f"{obs.get('source_ref', 'unknown')}: {obs.get('content', '')[:150]}"
                 for obs in existing_observations
             )
             existing_section = f"""
-## Already Reported Issues
+## Previously Reported Issues
 
-The following issues have already been reported. **Do NOT report these again.**
-Only report NEW issues not already covered below:
+The following issues were previously reported. Review them against the current content:
 
 {existing_list}
+
+**Your tasks:**
+1. Do NOT report these again if they still exist
+2. If an issue has been FIXED (no longer present in the content), mark it as resolved
 
 """
 
@@ -410,11 +420,12 @@ Only report NEW issues not already covered below:
 ## Instructions
 
 1. **Analyze** the content from your specialized perspective
-2. **Identify issues** that fall within your focus area
-3. **Skip duplicates** - if an issue is semantically the same as one already reported (even with different wording), do NOT report it again
-4. **Be specific** - reference exact locations (file:line or message context)
-5. **Prioritize** - report only significant NEW issues (max 5 per review)
-6. **Format** your response as JSON:
+2. **Identify NEW issues** that fall within your focus area
+3. **Check for FIXED issues** - if a previously reported issue is no longer present, mark it resolved
+4. **Skip duplicates** - do NOT report issues that are semantically the same as existing ones
+5. **Be specific** - reference exact locations (file:line or message context)
+6. **Prioritize** - report only significant NEW issues (max 5 per review)
+7. **Format** your response as JSON:
 
 ```json
 {{
@@ -428,14 +439,21 @@ Only report NEW issues not already covered below:
         "suggestion": "How to fix (optional)"
       }}
     }}
+  ],
+  "resolved": [
+    {{
+      "id": "id of the previously reported issue that is now fixed",
+      "reason": "Brief explanation of why it's resolved"
+    }}
   ]
 }}
 ```
 
-7. If you find **no NEW issues**, respond with:
+8. If you find **no NEW issues** and **no resolved issues**, respond with:
 ```json
 {{
-  "observations": []
+  "observations": [],
+  "resolved": []
 }}
 ```
 
@@ -518,6 +536,8 @@ Focus on issues within your expertise. Do not report issues outside your focus a
                     obs.setdefault("source_type", "mixed")
                     obs.setdefault("metadata", {})
 
+                # Ensure resolved array exists (may be empty)
+                data.setdefault("resolved", [])
                 return data
 
         except json.JSONDecodeError:
@@ -538,23 +558,40 @@ Focus on issues within your expertise. Do not report issues outside your focus a
 
         return {"observations": []}
 
-    def _aggregate_results(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Aggregate observations from all observer results, deduplicating within batch."""
+    def _aggregate_results(
+        self, results: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Aggregate observations and resolutions from all observer results.
+
+        Returns:
+            Tuple of (new_observations, resolved_items)
+        """
         observations = []
-        seen_keys: set[str] = set()
+        resolved = []
+        seen_obs_keys: set[str] = set()
+        seen_resolved_ids: set[str] = set()
 
         for result in results:
-            if isinstance(result, dict) and "observations" in result:
-                for obs in result["observations"]:
-                    # Create deduplication key from content + source_ref
-                    key = self._observation_key(obs)
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        observations.append(obs)
-                    else:
-                        logger.debug(f"Skipping duplicate observation: {key[:50]}...")
+            if not isinstance(result, dict):
+                continue
 
-        return observations
+            # Aggregate new observations
+            for obs in result.get("observations", []):
+                key = self._observation_key(obs)
+                if key not in seen_obs_keys:
+                    seen_obs_keys.add(key)
+                    observations.append(obs)
+                else:
+                    logger.debug(f"Skipping duplicate observation: {key[:50]}...")
+
+            # Aggregate resolved items
+            for res in result.get("resolved", []):
+                res_id = res.get("id", "")
+                if res_id and res_id not in seen_resolved_ids:
+                    seen_resolved_ids.add(res_id)
+                    resolved.append(res)
+
+        return observations, resolved
 
     def _observation_key(self, obs: dict[str, Any]) -> str:
         """Generate a deduplication key for an observation.
@@ -622,6 +659,35 @@ Focus on issues within your expertise. Do not report issues outside your focus a
             logger.info(f"Wrote {len(new_observations)} observations to tool")
         except Exception as e:
             logger.exception(f"Failed to write observations: {e}")
+
+    async def _resolve_observations(self, resolved: list[dict[str, Any]]) -> None:
+        """Resolve observations that the observer detected as fixed."""
+        try:
+            tool = self.coordinator.get("tools", "observations")
+            if not tool:
+                return
+
+            for item in resolved:
+                obs_id = item.get("id")
+                reason = item.get("reason", "Issue no longer detected by observer")
+
+                if not obs_id:
+                    continue
+
+                try:
+                    await tool.execute(
+                        {
+                            "operation": "resolve",
+                            "observation_id": obs_id,
+                            "resolution_note": f"Auto-resolved: {reason}",
+                        }
+                    )
+                    logger.debug(f"Resolved observation {obs_id}: {reason}")
+                except Exception as e:
+                    logger.warning(f"Failed to resolve observation {obs_id}: {e}")
+
+        except Exception as e:
+            logger.exception(f"Failed to resolve observations: {e}")
 
     async def _get_open_observations(self) -> list[dict[str, Any]]:
         """Get open observations from the tool."""
