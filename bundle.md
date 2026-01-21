@@ -24,7 +24,21 @@ hooks:
         max_concurrent: 10
         timeout_per_observer: 30
         on_timeout: skip
-      observers: []  # Override in your bundle
+      observers:
+        - name: "Code Scanner"
+          role: "Scan code for bugs and security issues"
+          focus: |
+            Look for:
+            - Security vulnerabilities (hardcoded credentials, SQL injection, code injection)
+            - Logic errors (division by zero, null references)
+            - Resource leaks (unclosed files/connections)
+            - Bad practices (bare except, mutable defaults)
+            Report each issue as a JSON observation with severity (critical/high/medium/low).
+          model: "claude-3-5-haiku-latest"
+          timeout: 30
+          watch:
+            - type: files
+              paths: ["**/*.py"]
 
   - module: hooks-observations-display
     source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations-display
