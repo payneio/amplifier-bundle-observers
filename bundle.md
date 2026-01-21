@@ -9,15 +9,13 @@ includes:
 
 tools:
   - module: tool-observations
-    source: ./amplifier_bundle_observers/tool_observations
     config: {}
 
 hooks:
   - module: hooks-observations
-    source: ./amplifier_bundle_observers/hooks_observations
     config:
       hooks:
-        - trigger: "prompt:complete"
+        - trigger: "orchestrator:complete"
           priority: 5
       execution:
         mode: parallel_sync
@@ -27,7 +25,6 @@ hooks:
       observers: []  # Override in your bundle
 
   - module: hooks-observations-display
-    source: ./amplifier_bundle_observers/hooks_observations_display
     config:
       style: compact
       show_on_create: true

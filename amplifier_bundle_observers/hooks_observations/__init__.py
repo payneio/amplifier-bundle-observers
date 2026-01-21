@@ -17,6 +17,7 @@ from glob import glob
 from typing import Any
 
 from amplifier_core import HookResult
+from amplifier_core.events import ORCHESTRATOR_COMPLETE
 
 from amplifier_bundle_observers.models import (
     ObservationsModuleConfig,
@@ -229,7 +230,9 @@ Please review and address these observations in your response.
         observer: ObserverConfig,
         event: dict[str, Any],
     ) -> dict[str, Any]:
-        """Spawn a single observer agent."""
+        """Spawn a single observer agent using direct provider call."""
+        from amplifier_core import ChatRequest, Message
+
         try:
             # Build content to review
             content = await self._build_review_content(observer, event)
@@ -237,41 +240,41 @@ Please review and address these observations in your response.
             # Build observer prompt
             prompt = self._build_observer_prompt(observer, content)
 
-            # Spawn observer session
-            spawn_capability = self.coordinator.get_capability("session.spawn")
-
-            if spawn_capability:
-                # Get parent session from coordinator
-                parent_session = getattr(self.coordinator, "session", None)
-                if not parent_session:
-                    logger.warning("No parent session available for observer spawning")
-                    return {"observations": []}
-
-                # Create a dynamic agent config for this observer
-                agent_id = f"observer-{observer.name.lower().replace(' ', '-')}"
-                agent_configs = {
-                    agent_id: {
-                        "name": observer.name,
-                        "description": observer.role,
-                        "instructions": f"You are {observer.name}. {observer.role}\n\nFocus: {observer.focus}",
-                    }
-                }
-
-                result = await asyncio.wait_for(
-                    spawn_capability(
-                        agent_name=agent_id,
-                        instruction=prompt,
-                        parent_session=parent_session,
-                        agent_configs=agent_configs,
-                        model_override=observer.model,
-                    ),
-                    timeout=observer.timeout,
-                )
-
-                return self._parse_observer_result(result, observer.name)
-            else:
-                logger.warning("No spawn capability available, skipping observer")
+            # Get provider from coordinator
+            providers = self.coordinator.get("providers")
+            if not providers:
+                logger.warning(f"No providers available for observer '{observer.name}'")
                 return {"observations": []}
+
+            # Get first available provider
+            provider = list(providers.values())[0]
+            logger.debug(f"Using provider for observer '{observer.name}'")
+
+            # Create request with system message for observer role
+            messages = [
+                Message(role="system", content=f"You are {observer.name}. {observer.role}"),
+                Message(role="user", content=prompt),
+            ]
+
+            request = ChatRequest(
+                messages=messages,
+                model=observer.model,  # Request specific model
+            )
+
+            # Make the LLM call
+            response = await asyncio.wait_for(
+                provider.complete(request),
+                timeout=observer.timeout,
+            )
+
+            # Extract text from response content blocks
+            text_result = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    text_result += block.text
+
+            logger.debug(f"Observer '{observer.name}' response length: {len(text_result)}")
+            return self._parse_observer_result(text_result, observer.name)
 
         except TimeoutError:
             logger.warning(f"Observer '{observer.name}' timed out")
@@ -418,29 +421,64 @@ Focus on issues within your expertise. Do not report issues outside your focus a
         self, result: str | dict[str, Any], observer_name: str
     ) -> dict[str, Any]:
         """Parse observer agent response into structured observations."""
+        # Log the raw result for debugging
+        logger.debug(f"Observer '{observer_name}' raw result type: {type(result)}")
+        if isinstance(result, dict):
+            logger.debug(f"Observer '{observer_name}' result keys: {result.keys()}")
+
         # Extract text from dict result (from spawn_capability)
         text_result: str = ""
         if isinstance(result, dict):
-            # The spawn result has an 'output' key with the agent's response
-            text_result = str(result.get("output", result.get("result", "")))
+            # Try multiple possible keys for the response content
+            # The spawn capability may return different structures
+            for key in ["output", "result", "response", "content", "text"]:
+                if key in result and result[key]:
+                    text_result = str(result[key])
+                    logger.debug(f"Found result in key '{key}'")
+                    break
+
+            # If still empty, try to stringify the whole dict
+            if not text_result:
+                # Check if it's a nested structure
+                if "data" in result and isinstance(result["data"], dict):
+                    text_result = str(result["data"].get("output", ""))
+                elif not text_result:
+                    # Last resort: convert whole result to string
+                    text_result = json.dumps(result) if result else ""
+                    logger.debug(f"Using stringified result: {text_result[:200]}")
         else:
             text_result = str(result)
 
+        logger.debug(f"Observer '{observer_name}' extracted text (first 500 chars): {text_result[:500]}")
+
         # Try to extract JSON from response
         try:
-            # Handle case where result might be wrapped in markdown code blocks
-            if "```json" in text_result:
-                start = text_result.find("```json") + 7
-                end = text_result.find("```", start)
-                if end > start:
-                    text_result = text_result[start:end].strip()
-            elif "```" in text_result:
-                start = text_result.find("```") + 3
-                end = text_result.find("```", start)
-                if end > start:
-                    text_result = text_result[start:end].strip()
+            json_text = text_result
 
-            data = json.loads(text_result)
+            # Handle case where result might be wrapped in markdown code blocks
+            if "```json" in json_text:
+                start = json_text.find("```json") + 7
+                end = json_text.find("```", start)
+                if end > start:
+                    json_text = json_text[start:end].strip()
+            elif "```" in json_text:
+                start = json_text.find("```") + 3
+                end = json_text.find("```", start)
+                if end > start:
+                    json_text = json_text[start:end].strip()
+
+            # Try to find JSON object in the text if not already valid JSON
+            if not json_text.strip().startswith("{"):
+                # Look for JSON object pattern
+                import re
+
+                json_match = re.search(r"\{[^{}]*\"observations\"[^{}]*\[.*?\]\s*\}", json_text, re.DOTALL)
+                if json_match:
+                    json_text = json_match.group(0)
+                    logger.debug(f"Extracted JSON via regex: {json_text[:200]}")
+
+            data = json.loads(json_text)
+            logger.debug(f"Successfully parsed JSON with keys: {data.keys() if isinstance(data, dict) else 'N/A'}")
 
             if "observations" in data:
                 for obs in data["observations"]:

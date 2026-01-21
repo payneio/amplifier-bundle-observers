@@ -7,7 +7,7 @@ hooks:
   - module: amplifier_bundle_observers.hooks_observations
     config:
       hooks:
-        - trigger: "response:complete"
+        - trigger: "orchestrator:complete"
           priority: 5
 
       execution:

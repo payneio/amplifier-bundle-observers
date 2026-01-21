@@ -301,8 +301,9 @@ class ObservationsModuleConfig:
         hooks = [HookConfig.from_dict(h) for h in data.get("hooks", [])]
 
         # Default hook if none specified
+        # Note: orchestrator:complete fires at end of each turn
         if not hooks:
-            hooks = [HookConfig(trigger="response:complete", priority=5)]
+            hooks = [HookConfig(trigger="orchestrator:complete", priority=5)]
 
         execution = ExecutionConfig.from_dict(data.get("execution", {}))
 
