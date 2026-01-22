@@ -196,6 +196,37 @@ def resolve_mention_path(
     return None
 
 
+def _get_bundles_from_resolver(mention_resolver: MentionResolver | None) -> dict[str, Any]:
+    """Extract bundles dict from various mention resolver implementations.
+
+    Handles:
+    - BaseMentionResolver: has .bundles directly
+    - AppMentionResolver: wraps BaseMentionResolver via .foundation_resolver
+
+    Args:
+        mention_resolver: The mention resolver instance (may be wrapped)
+
+    Returns:
+        Dict mapping bundle names to bundle objects with base_path
+    """
+    if not mention_resolver:
+        return {}
+
+    # 1. Direct bundles attribute (BaseMentionResolver)
+    bundles = getattr(mention_resolver, "bundles", None)
+    if bundles:
+        return bundles
+
+    # 2. Via foundation_resolver (AppMentionResolver wraps BaseMentionResolver)
+    foundation = getattr(mention_resolver, "foundation_resolver", None)
+    if foundation:
+        bundles = getattr(foundation, "bundles", None)
+        if bundles:
+            return bundles
+
+    return {}
+
+
 def resolve_observer_path(
     observer_ref: str,
     mention_resolver: MentionResolver | None,
@@ -249,7 +280,7 @@ def resolve_observer_path(
     # 2. Try bundle base_paths from mention_resolver
     # This handles cases where base_path is cwd() but the observer
     # lives in an included bundle's directory
-    bundles: dict[str, Any] = getattr(mention_resolver, "bundles", {}) if mention_resolver else {}
+    bundles: dict[str, Any] = _get_bundles_from_resolver(mention_resolver)
     if bundles:
         for bundle_name, bundle in bundles.items():
             bundle_base = getattr(bundle, "base_path", None)
