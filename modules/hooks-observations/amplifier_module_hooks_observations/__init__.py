@@ -400,7 +400,13 @@ If no new issues and nothing resolved: `{"observations": [], "resolved": []}`
     ) -> dict[str, Any]:
         """Spawn observer using session.spawn capability with tools."""
         # Get spawn capability from coordinator
-        spawn = self.coordinator.get("capabilities", "spawn")
+        # Note: coordinator.get() raises ValueError for unknown mount points,
+        # so we need to catch that and fall back to direct spawning
+        try:
+            spawn = self.coordinator.get("capabilities", "spawn")
+        except (ValueError, KeyError, AttributeError):
+            spawn = None
+
         if not spawn:
             logger.warning(
                 f"Spawn capability not available, falling back to direct for {observer.name}"
