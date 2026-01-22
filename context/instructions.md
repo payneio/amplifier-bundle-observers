@@ -63,26 +63,85 @@ Remove all resolved observations:
 {"operation": "clear_resolved"}
 ```
 
-## Observer Configuration
+## Observer Definition
 
-Observers are configured in the bundle YAML. Each observer has:
+Observers are defined as markdown files with YAML frontmatter, similar to how agents are defined in Amplifier. This allows:
+
+- **@-mentions** for pulling in domain knowledge and context
+- **Tools** for more sophisticated analysis (grep, read_file, etc.)
+- **Rich instructions** in the markdown body
+
+### Observer File Format
+
+```markdown
+---
+observer:
+  name: Security Auditor
+  description: Identifies security vulnerabilities
+  model: claude-3-5-haiku-latest
+  timeout: 30
+
+tools:
+  - grep
+  - read_file
+---
+
+# Security Auditor
+
+You are a security expert reviewing code for vulnerabilities.
+
+## Domain Knowledge
+
+@security-bundle:context/owasp-top-10.md
+
+## Focus Areas
+
+- Injection attacks (SQL, command, code)
+- Hardcoded secrets and credentials
+- Authentication/authorization flaws
+
+## Methodology
+
+1. Use `grep` to find dangerous patterns
+2. Use `read_file` to examine context
+3. Verify findings aren't false positives
+```
+
+### Observer Properties
+
+| Property | Description | Default |
+|----------|-------------|---------|
+| `name` | Display name for the observer | File stem |
+| `description` | Brief description | Empty |
+| `model` | LLM model to use | claude-3-5-haiku-latest |
+| `timeout` | Max execution time (seconds) | 30 |
+| `tools` | Tools the observer can use | None |
+
+## Hook Configuration
+
+Observers are referenced in the hook config with watch patterns:
 
 ```yaml
-observers:
-  - name: "Observer Name"
-    role: "One-line description"
-    focus: |
-      Detailed instructions on what to look for.
-      Can be multi-line.
-    model: "claude-sonnet-4-20250514"
-    timeout: 30
-    enabled: true
-    watch:
-      - type: files
-        paths: ["src/**/*.py", "tests/**/*.py"]
-      - type: conversation
-        include_tool_calls: true
-        include_reasoning: true
+hooks:
+  - module: hooks-observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations
+    config:
+      observers:
+        # Reference an observer from this bundle
+        - observer: observers/security-auditor
+          watch:
+            - type: files
+              paths: ["src/**/*.py"]
+        
+        # Reference with overrides
+        - observer: observers/code-quality
+          model: claude-sonnet-4-20250514  # Override default model
+          timeout: 60
+          watch:
+            - type: files
+              paths: ["**/*.py"]
+            - type: conversation
+              include_tool_calls: true
 ```
 
 ### Watch Types
@@ -107,88 +166,62 @@ execution:
   on_timeout: skip       # "skip" or "fail"
 ```
 
-## Common Patterns
+## Built-in Observers
 
-### Simple Code Review
+This bundle includes two ready-to-use observers:
 
-```yaml
-observers:
-  - name: "Code Reviewer"
-    role: "Reviews code for quality and correctness"
-    focus: "Syntax errors, code smells, best practice violations"
-    model: "claude-sonnet-4-20250514"
-    watch:
-      - type: files
-        paths: ["src/**/*.py"]
-```
+### Security Auditor (`observers/security-auditor`)
 
-### Security-Focused Review
+Focuses on security vulnerabilities:
+- Injection attacks (SQL, command, code via eval/exec)
+- Hardcoded credentials and secrets
+- Authentication/authorization issues
+- Input validation problems
 
-```yaml
-observers:
-  - name: "Security Reviewer"
-    role: "Security vulnerability analysis"
-    focus: |
-      Look for security vulnerabilities including:
-      - SQL injection risks (CWE-89)
-      - XSS vulnerabilities (CWE-79)
-      - Command injection (CWE-78)
-      - Path traversal (CWE-22)
-      - Hardcoded credentials
-      - Missing authentication checks
-    model: "claude-sonnet-4-20250514"
-    timeout: 45
-    watch:
-      - type: files
-        paths: ["src/**/*.py"]
-      - type: conversation
-        include_tool_calls: true
-```
+Uses `grep` and `read_file` to verify findings.
 
-### Logic Checker (Conversation Only)
+### Code Quality (`observers/code-quality`)
 
-```yaml
-observers:
-  - name: "Logic Checker"
-    role: "Identifies logical errors in reasoning"
-    focus: |
-      Analyze reasoning for:
-      - Circular reasoning
-      - False premises
-      - Unstated assumptions
-      - Missing edge cases
-    model: "claude-sonnet-4-20250514"
-    watch:
-      - type: conversation
-        include_tool_calls: true
-        include_reasoning: true
-```
+Focuses on maintainability and patterns:
+- Code smells (long functions, deep nesting)
+- Error handling issues
+- Resource management (unclosed files/connections)
+- Missing type hints and documentation
 
-### Tiered Review (Fast + Deep)
+## Creating Custom Observers
 
-```yaml
-observers:
-  # Fast scan with Haiku
-  - name: "Quick Scanner"
-    role: "Fast initial scan"
-    focus: "Obvious errors only"
-    model: "claude-3-5-haiku-latest"
-    timeout: 15
-    watch:
-      - type: files
-        paths: ["**/*.py"]
+1. Create a markdown file in `observers/` directory
+2. Add YAML frontmatter with `observer:` section
+3. Write instructions in markdown body
+4. Optionally add tools and @-mentions
+5. Reference in hook config
 
-  # Deep review with Sonnet
-  - name: "Deep Reviewer"
-    role: "Comprehensive analysis"
-    focus: "Architecture, patterns, edge cases, security"
-    model: "claude-sonnet-4-20250514"
-    timeout: 60
-    watch:
-      - type: files
-        paths: ["src/**/*.py"]
-      - type: conversation
-        include_tool_calls: true
+Example custom observer:
+
+```markdown
+---
+observer:
+  name: API Reviewer
+  description: Reviews API design and REST conventions
+  model: claude-3-5-haiku-latest
+
+tools:
+  - grep
+  - read_file
+---
+
+# API Reviewer
+
+Review API endpoints for REST best practices.
+
+@my-bundle:context/api-guidelines.md
+
+## Focus Areas
+
+- Proper HTTP method usage (GET/POST/PUT/DELETE)
+- Consistent naming conventions
+- Error response formats
+- Authentication requirements
 ```
 
 ## Display Configuration
@@ -197,7 +230,8 @@ The optional display module shows observation status:
 
 ```yaml
 hooks:
-  - module: amplifier_bundle_observers.hooks_observations_display
+  - module: hooks-observations-display
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations-display
     config:
       style: compact        # "compact" | "table" | "progress_bar"
       show_on_create: true

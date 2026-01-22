@@ -25,17 +25,11 @@ hooks:
         timeout_per_observer: 30
         on_timeout: skip
       observers:
-        - name: "Code Scanner"
-          role: "Scan code for bugs and security issues"
-          focus: |
-            Look for:
-            - Security vulnerabilities (hardcoded credentials, SQL injection, code injection)
-            - Logic errors (division by zero, null references)
-            - Resource leaks (unclosed files/connections)
-            - Bad practices (bare except, mutable defaults)
-            Report each issue as a JSON observation with severity (critical/high/medium/low).
-          model: "claude-3-5-haiku-latest"
-          timeout: 30
+        - observer: observers/security-auditor
+          watch:
+            - type: files
+              paths: ["**/*.py"]
+        - observer: observers/code-quality
           watch:
             - type: files
               paths: ["**/*.py"]
@@ -70,19 +64,25 @@ Include this bundle and configure observers for your use case:
 
 ```yaml
 includes:
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-observers@main
+  - bundle: git+https://github.com/payneio/amplifier-bundle-observers@main
+
+hooks:
+  - module: hooks-observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations
     config:
-      hooks:
-        - module: amplifier_bundle_observers.hooks_observations
-          config:
-            observers:
-              - name: "Code Reviewer"
-                role: "Reviews code quality"
-                focus: "Syntax errors, code smells, best practices"
-                model: "claude-sonnet-4-20250514"
-                watch:
-                  - type: files
-                    paths: ["src/**/*.py"]
+      observers:
+        # Reference built-in observers
+        - observer: observers/security-auditor
+          watch:
+            - type: files
+              paths: ["src/**/*.py"]
+        
+        # Reference with model override
+        - observer: observers/code-quality
+          model: claude-sonnet-4-20250514  # Use more capable model
+          watch:
+            - type: files
+              paths: ["src/**/*.py"]
 ```
 
 ## Architecture

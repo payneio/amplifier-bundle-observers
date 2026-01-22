@@ -16,11 +16,14 @@ import os
 from glob import glob
 from typing import Any
 
+from pathlib import Path
+
 from amplifier_core import HookResult
 
+from .loader import LoadedObserver, load_observer
 from .models import (
     ObservationsModuleConfig,
-    ObserverConfig,
+    ObserverReference,
     WatchType,
 )
 
@@ -42,6 +45,7 @@ class ObservationHooks:
         self,
         config: ObservationsModuleConfig,
         coordinator: Any,
+        base_path: Path | None = None,
     ) -> None:
         """
         Initialize observation hooks.
@@ -49,10 +53,14 @@ class ObservationHooks:
         Args:
             config: Module configuration
             coordinator: Orchestrator coordinator for spawning sessions
+            base_path: Base path for resolving relative observer references
         """
         self.config = config
         self.coordinator = coordinator
+        self.base_path = base_path or Path.cwd()
         self._last_state_hash: str | None = None
+        self._loaded_observers: dict[str, LoadedObserver] = {}
+        self._protocol_instructions: str | None = None
 
     async def trigger_observers(self, event_name: str, event_data: dict[str, Any]) -> HookResult:
         """
@@ -151,16 +159,100 @@ Please review and address these observations in your response.
             context_injection_role="system",
         )
 
+    async def _ensure_observers_loaded(self) -> None:
+        """Load all observer definitions if not already loaded."""
+        if self._loaded_observers:
+            return
+
+        bundles = self._get_available_bundles()
+
+        for ref in self.config.observers:
+            if not ref.enabled:
+                continue
+
+            try:
+                observer = await load_observer(
+                    ref.observer,
+                    bundles=bundles,
+                    base_path=self.base_path,
+                )
+
+                # Apply overrides from hook config
+                if ref.model:
+                    observer.model = ref.model
+                if ref.timeout:
+                    observer.timeout = ref.timeout
+
+                self._loaded_observers[ref.observer] = observer
+                logger.info(f"Loaded observer: {observer.name} from {ref.observer}")
+
+            except Exception as e:
+                logger.error(f"Failed to load observer {ref.observer}: {e}")
+
+    def _get_available_bundles(self) -> dict[str, Any]:
+        """Get available bundles from coordinator for @-mention resolution."""
+        # Try to get bundles from coordinator
+        bundles = self.coordinator.get("bundles")
+        if bundles:
+            return bundles
+        return {}
+
+    async def _load_protocol_instructions(self) -> str:
+        """Load the observer protocol instructions from context file."""
+        if self._protocol_instructions:
+            return self._protocol_instructions
+
+        # Try to load from bundle context
+        protocol_path = self.base_path / "context" / "observer-protocol.md"
+        if protocol_path.exists():
+            self._protocol_instructions = protocol_path.read_text(encoding="utf-8")
+        else:
+            # Fallback to embedded protocol
+            self._protocol_instructions = self._get_default_protocol()
+
+        return self._protocol_instructions
+
+    def _get_default_protocol(self) -> str:
+        """Return default observer protocol if context file not found."""
+        return """## Output Format
+
+Respond with valid JSON only:
+
+```json
+{
+  "observations": [
+    {
+      "content": "Description of the NEW issue",
+      "severity": "critical|high|medium|low|info",
+      "source_ref": "file:line or context reference",
+      "metadata": {
+        "category": "security|quality|logic|performance",
+        "suggestion": "How to fix (optional)"
+      }
+    }
+  ],
+  "resolved": [
+    {
+      "id": "id of issue that is now fixed",
+      "reason": "Brief explanation"
+    }
+  ]
+}
+```
+
+If no new issues and nothing resolved: `{"observations": [], "resolved": []}`
+"""
+
     async def _compute_state_hash(
         self,
-        observers: list[ObserverConfig],
+        observer_refs: list[ObserverReference],
         event: dict[str, Any],
     ) -> str:
         """Compute hash of current state for change detection."""
         state_parts = []
 
-        for observer in observers:
-            for watch in observer.watch:
+        for ref in observer_refs:
+            for watch in ref.watch:
                 if watch.type == WatchType.FILES:
                     file_state = self._get_file_state(watch.paths or [])
                     state_parts.append(file_state)
@@ -202,26 +294,40 @@ Please review and address these observations in your response.
 
     async def _run_observers_parallel(
         self,
-        observers: list[ObserverConfig],
+        observer_refs: list[ObserverReference],
         event: dict[str, Any],
     ) -> list[dict[str, Any]]:
         """Run all observers in parallel with timeout."""
         max_concurrent = self.config.execution.max_concurrent
 
+        # Ensure all observers are loaded
+        await self._ensure_observers_loaded()
+
         # Fetch existing observations ONCE for all observers (deduplication context)
         existing_observations = await self._get_open_observations()
         if existing_observations:
-            logger.debug(f"Passing {len(existing_observations)} existing observations to observers")
+            logger.debug(
+                f"Passing {len(existing_observations)} existing observations to observers"
+            )
+
+        # Load protocol instructions
+        protocol = await self._load_protocol_instructions()
 
         # Create semaphore to limit concurrency
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        async def run_with_semaphore(observer: ObserverConfig) -> dict[str, Any]:
+        async def run_with_semaphore(ref: ObserverReference) -> dict[str, Any]:
             async with semaphore:
-                return await self._spawn_observer(observer, event, existing_observations)
+                loaded = self._loaded_observers.get(ref.observer)
+                if not loaded:
+                    logger.warning(f"Observer not loaded: {ref.observer}")
+                    return {"observations": [], "resolved": []}
+                return await self._spawn_observer(
+                    loaded, ref, event, existing_observations, protocol
+                )
 
         # Create tasks
-        tasks = [run_with_semaphore(observer) for observer in observers]
+        tasks = [run_with_semaphore(ref) for ref in observer_refs]
 
         # Run with global timeout
         global_timeout = self.config.execution.timeout_per_observer * 2
@@ -238,72 +344,133 @@ Please review and address these observations in your response.
 
     async def _spawn_observer(
         self,
-        observer: ObserverConfig,
+        observer: LoadedObserver,
+        ref: ObserverReference,
         event: dict[str, Any],
         existing_observations: list[dict[str, Any]] | None = None,
+        protocol: str | None = None,
     ) -> dict[str, Any]:
-        """Spawn a single observer agent using direct provider call."""
-        from amplifier_core import ChatRequest, Message
-
+        """Spawn a single observer using loaded definition."""
         try:
-            # Build content to review
-            content = await self._build_review_content(observer, event)
+            # Build content to review based on watch config
+            content = await self._build_review_content(ref, event)
 
-            # Build observer prompt with existing observations for deduplication
-            prompt = self._build_observer_prompt(observer, content, existing_observations)
-
-            # Get provider from coordinator
-            providers = self.coordinator.get("providers")
-            if not providers:
-                logger.warning(f"No providers available for observer '{observer.name}'")
-                return {"observations": []}
-
-            # Get first available provider
-            provider = list(providers.values())[0]
-            logger.debug(f"Using provider for observer '{observer.name}'")
-
-            # Create request with system message for observer role
-            messages = [
-                Message(role="system", content=f"You are {observer.name}. {observer.role}"),
-                Message(role="user", content=prompt),
-            ]
-
-            request = ChatRequest(messages=messages)
-
-            # Make the LLM call
-            response = await asyncio.wait_for(
-                provider.complete(request),
-                timeout=observer.timeout,
+            # Build the full prompt with observer instructions, content, and protocol
+            prompt = self._build_observer_prompt(
+                observer, content, existing_observations, protocol
             )
 
-            # Extract text from response content blocks
-            text_result = ""
-            for block in response.content:
-                if hasattr(block, "text"):
-                    text_result += block.text
+            # Check if observer has tools - use spawn capability if so
+            if observer.tools:
+                return await self._spawn_with_tools(observer, prompt)
 
-            logger.debug(f"Observer '{observer.name}' response length: {len(text_result)}")
-            return self._parse_observer_result(text_result, observer.name)
+            # Otherwise use direct provider call (faster for simple observers)
+            return await self._spawn_direct(observer, prompt)
 
         except TimeoutError:
             logger.warning(f"Observer '{observer.name}' timed out")
             if self.config.execution.on_timeout == "fail":
                 raise
-            return {"observations": [], "error": "timeout"}
+            return {"observations": [], "resolved": [], "error": "timeout"}
 
         except Exception as e:
             logger.exception(f"Observer '{observer.name}' failed: {e}")
-            return {"observations": [], "error": str(e)}
+            return {"observations": [], "resolved": [], "error": str(e)}
+
+    async def _spawn_with_tools(
+        self,
+        observer: LoadedObserver,
+        prompt: str,
+    ) -> dict[str, Any]:
+        """Spawn observer using session.spawn capability with tools."""
+        # Get spawn capability from coordinator
+        spawn = self.coordinator.get("capabilities", "spawn")
+        if not spawn:
+            logger.warning(
+                f"Spawn capability not available, falling back to direct for {observer.name}"
+            )
+            return await self._spawn_direct(observer, prompt)
+
+        try:
+            # Build system instruction from observer definition
+            system_instruction = observer.get_full_instruction()
+
+            result = await asyncio.wait_for(
+                spawn(
+                    instruction=prompt,
+                    system=system_instruction,
+                    model=observer.model,
+                    tools=observer.tools,
+                ),
+                timeout=observer.timeout,
+            )
+
+            # Parse the result - spawn returns a string response
+            if isinstance(result, str):
+                return self._parse_observer_result(result, observer.name)
+            elif isinstance(result, dict):
+                return result
+            else:
+                logger.warning(f"Unexpected spawn result type: {type(result)}")
+                return {"observations": [], "resolved": []}
+
+        except Exception as e:
+            logger.exception(f"Spawn failed for observer '{observer.name}': {e}")
+            return {"observations": [], "resolved": [], "error": str(e)}
+
+    async def _spawn_direct(
+        self,
+        observer: LoadedObserver,
+        prompt: str,
+    ) -> dict[str, Any]:
+        """Spawn observer using direct provider call (no tools)."""
+        from amplifier_core import ChatRequest, Message
+
+        # Get provider from coordinator
+        providers = self.coordinator.get("providers")
+        if not providers:
+            logger.warning(f"No providers available for observer '{observer.name}'")
+            return {"observations": [], "resolved": []}
+
+        # Get first available provider
+        provider = list(providers.values())[0]
+        logger.debug(f"Using direct provider for observer '{observer.name}'")
+
+        # Build system message from observer definition
+        system_content = observer.get_full_instruction()
+
+        # Create request
+        messages = [
+            Message(role="system", content=system_content),
+            Message(role="user", content=prompt),
+        ]
+
+        request = ChatRequest(messages=messages, model=observer.model)
+
+        # Make the LLM call
+        response = await asyncio.wait_for(
+            provider.complete(request),
+            timeout=observer.timeout,
+        )
+
+        # Extract text from response content blocks
+        text_result = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                text_result += block.text
+
+        logger.debug(f"Observer '{observer.name}' response length: {len(text_result)}")
+        return self._parse_observer_result(text_result, observer.name)
 
     async def _build_review_content(
         self,
-        observer: ObserverConfig,
+        ref: ObserverReference,
         event: dict[str, Any],
     ) -> str:
         """Build the content for an observer to review."""
         content_parts = []
 
-        for watch in observer.watch:
+        for watch in ref.watch:
             if watch.type == WatchType.FILES:
                 file_content = await self._get_file_content(watch.paths or [])
                 if file_content:
@@ -380,11 +547,19 @@ Please review and address these observations in your response.
 
     def _build_observer_prompt(
         self,
-        observer: ObserverConfig,
+        observer: LoadedObserver,
         content: str,
         existing_observations: list[dict[str, Any]] | None = None,
+        protocol: str | None = None,
     ) -> str:
-        """Build the prompt for an observer agent."""
+        """Build the prompt for an observer agent.
+
+        The prompt combines:
+        1. Content to review
+        2. Existing observations (for deduplication/resolution)
+        3. Protocol instructions (output format)
+        """
+        # Build existing observations section
         existing_section = ""
         if existing_observations:
             existing_list = "\n".join(
@@ -405,59 +580,24 @@ The following issues were previously reported. Review them against the current c
 
 """
 
-        return f"""You are **{observer.name}**, a specialized reviewer.
+        # Use provided protocol or default
+        protocol_section = protocol or self._get_default_protocol()
 
-## Your Role
-{observer.role}
+        # Replace placeholder in protocol with actual existing observations
+        if "{{existing_observations}}" in protocol_section:
+            if existing_observations:
+                obs_text = existing_section
+            else:
+                obs_text = "No previously reported issues."
+            protocol_section = protocol_section.replace(
+                "{{existing_observations}}", obs_text
+            )
 
-## Your Focus
-{observer.focus}
-{existing_section}
-## Content to Review
+        return f"""## Content to Review
 
 {content}
-
-## Instructions
-
-1. **Analyze** the content from your specialized perspective
-2. **Identify NEW issues** that fall within your focus area
-3. **Check for FIXED issues** - if a previously reported issue is no longer present, mark it resolved
-4. **Skip duplicates** - do NOT report issues that are semantically the same as existing ones
-5. **Be specific** - reference exact locations (file:line or message context)
-6. **Prioritize** - report only significant NEW issues (max 5 per review)
-7. **Format** your response as JSON:
-
-```json
-{{
-  "observations": [
-    {{
-      "content": "Description of the issue",
-      "severity": "critical|high|medium|low|info",
-      "source_ref": "file path:line or message context",
-      "metadata": {{
-        "category": "security|quality|logic|etc",
-        "suggestion": "How to fix (optional)"
-      }}
-    }}
-  ],
-  "resolved": [
-    {{
-      "id": "id of the previously reported issue that is now fixed",
-      "reason": "Brief explanation of why it's resolved"
-    }}
-  ]
-}}
-```
-
-8. If you find **no NEW issues** and **no resolved issues**, respond with:
-```json
-{{
-  "observations": [],
-  "resolved": []
-}}
-```
-
-Focus on issues within your expertise. Do not report issues outside your focus area.
+{existing_section}
+{protocol_section}
 """
 
     def _parse_observer_result(

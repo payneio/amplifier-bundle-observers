@@ -187,52 +187,50 @@ class WatchConfig:
 
 
 @dataclass
-class ObserverConfig:
+class ObserverReference:
     """
-    Configuration for a single observer.
+    Reference to an observer definition in a bundle.
 
-    Observers are specialized agents that review content and report observations.
+    Observers are defined as markdown files with YAML frontmatter (like agents).
+    This reference points to the observer file and specifies what to watch.
     """
 
-    name: str
-    role: str
-    focus: str
-    model: str
+    observer: str  # "bundle:observers/name" or "observers/name" (relative)
     watch: list[WatchConfig]
-    timeout: int = 30
+
+    # Overrides (applied after loading observer file)
+    model: str | None = None
+    timeout: int | None = None
     enabled: bool = True
-    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ObserverConfig":
-        """Create ObserverConfig from dictionary."""
+    def from_dict(cls, data: dict[str, Any]) -> "ObserverReference":
+        """Create ObserverReference from dictionary."""
         watch_configs = [
-            WatchConfig.from_dict(w) if isinstance(w, dict) else w for w in data.get("watch", [])
+            WatchConfig.from_dict(w) if isinstance(w, dict) else w
+            for w in data.get("watch", [])
         ]
 
         return cls(
-            name=data["name"],
-            role=data["role"],
-            focus=data["focus"],
-            model=data["model"],
+            observer=data["observer"],
             watch=watch_configs,
-            timeout=data.get("timeout", 30),
+            model=data.get("model"),
+            timeout=data.get("timeout"),
             enabled=data.get("enabled", True),
-            metadata=data.get("metadata", {}),
         )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
-        return {
-            "name": self.name,
-            "role": self.role,
-            "focus": self.focus,
-            "model": self.model,
+        result: dict[str, Any] = {
+            "observer": self.observer,
             "watch": [w.to_dict() for w in self.watch],
-            "timeout": self.timeout,
             "enabled": self.enabled,
-            "metadata": self.metadata,
         }
+        if self.model is not None:
+            result["model"] = self.model
+        if self.timeout is not None:
+            result["timeout"] = self.timeout
+        return result
 
 
 @dataclass
@@ -293,7 +291,7 @@ class ObservationsModuleConfig:
 
     hooks: list[HookConfig] = field(default_factory=list)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
-    observers: list[ObserverConfig] = field(default_factory=list)
+    observers: list[ObserverReference] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ObservationsModuleConfig":
@@ -307,7 +305,7 @@ class ObservationsModuleConfig:
 
         execution = ExecutionConfig.from_dict(data.get("execution", {}))
 
-        observers = [ObserverConfig.from_dict(o) for o in data.get("observers", [])]
+        observers = [ObserverReference.from_dict(o) for o in data.get("observers", [])]
 
         return cls(
             hooks=hooks,
