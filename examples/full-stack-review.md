@@ -1,7 +1,12 @@
-# Full-Stack Review Configuration
-#
-# Comprehensive review for full-stack web development.
-# Covers Python backend, TypeScript/React frontend, SQL, and infrastructure.
+---
+bundle:
+  name: full-stack-review
+  version: 0.1.0
+  description: Comprehensive review for full-stack web development
+
+includes:
+  - bundle: git+https://github.com/microsoft/amplifier-foundation@main
+  - bundle: git+https://github.com/payneio/amplifier-bundle-observers@main
 
 hooks:
   - module: hooks-observations
@@ -10,13 +15,11 @@ hooks:
       hooks:
         - trigger: "orchestrator:complete"
           priority: 5
-
       execution:
         mode: parallel_sync
         max_concurrent: 8
         timeout_per_observer: 45
         on_timeout: skip
-
       observers:
         # Backend (Python)
         - observer: "@observers:observers/python-best-practices"
@@ -54,7 +57,7 @@ hooks:
 
         # Security (all code)
         - observer: "@observers:observers/security-auditor"
-          model: claude-sonnet-4-20250514  # Use stronger model for security
+          model: claude-sonnet-4-20250514
           watch:
             - type: files
               paths: ["**/*"]
@@ -76,3 +79,39 @@ hooks:
                 - "**/*.toml"
                 - "**/Dockerfile"
                 - "**/.env*"
+
+tools:
+  - module: tool-observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/tool-observations
+---
+
+# Full-Stack Review Bundle
+
+Comprehensive review for full-stack web development. Covers Python backend, TypeScript/React frontend, SQL, APIs, and infrastructure.
+
+## Usage
+
+```bash
+amplifier bundle add examples/full-stack-review.md --name full-stack-review
+amplifier run -B full-stack-review
+```
+
+## Observers
+
+| Layer | Observer | Focus |
+|-------|----------|-------|
+| **Backend** | python-best-practices | PEP 8, idioms, patterns |
+| | async-patterns | Async/await correctness |
+| **Frontend** | typescript-reviewer | TS best practices, types |
+| | react-reviewer | React patterns, hooks |
+| **Database** | sql-reviewer | Query optimization, N+1 |
+| **API** | api-design | REST/GraphQL conventions |
+| **Security** | security-auditor | Vulnerabilities (Sonnet) |
+| **A11y** | accessibility-checker | WCAG compliance |
+| **DevOps** | config-reviewer | Config best practices |
+
+## Best For
+
+- Full-stack web applications
+- Projects with Python backend + React frontend
+- Teams wanting comprehensive automated review

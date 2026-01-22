@@ -54,7 +54,39 @@ tools:
   - module: tool-observations
 ```
 
-See `bundle.md` for full documentation and `examples/` for configuration patterns.
+See `bundle.md` for full documentation.
+
+## Example Bundles
+
+Ready-to-use bundles in `examples/`:
+
+| Bundle | Use Case |
+|--------|----------|
+| `simple-observer.md` | Single code quality observer for Python |
+| `multi-observer.md` | Multiple specialized observers (security, performance, tests) |
+| `systems-thinking.md` | Systemic analysis for architecture and decisions |
+| `writing-review.md` | Written content quality (docs, emails, reports) |
+| `tiered-review.md` | Fast Haiku scans + deep Sonnet analysis |
+| `full-stack-review.md` | Comprehensive full-stack web development |
+
+### Quick Start
+
+```bash
+# Clone the repo (or use git+ URL)
+git clone https://github.com/payneio/amplifier-bundle-observers.git
+
+# Register an example bundle
+amplifier bundle add amplifier-bundle-observers/examples/systems-thinking.md --name systems-thinking
+
+# Run with it
+amplifier run -B systems-thinking
+```
+
+Or use directly from GitHub:
+
+```bash
+amplifier run --bundle git+https://github.com/payneio/amplifier-bundle-observers@main#examples/systems-thinking.md
+```
 
 ## Observer Reference Patterns
 
