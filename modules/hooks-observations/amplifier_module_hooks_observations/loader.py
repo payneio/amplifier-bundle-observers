@@ -205,12 +205,12 @@ def resolve_observer_path(
 
     Patterns:
     - "@bundle:observers/name" → resolved via mention_resolver
-    - "observers/name" → base_path/observers/name.md
+    - "observers/name" → tries base_path first, then registered bundle base_paths
 
     Args:
         observer_ref: Observer reference string
         mention_resolver: Resolver for @bundle:path mentions
-        base_path: Base path for relative references
+        base_path: Base path for relative references (fallback)
 
     Returns:
         Resolved Path to observer file
@@ -232,16 +232,46 @@ def resolve_observer_path(
             raise FileNotFoundError(f"Observer not found via mention_resolver: {observer_ref}")
         raise FileNotFoundError(f"No mention_resolver available to resolve: {observer_ref}")
 
-    # Relative reference
+    # Relative reference - try multiple sources
+    tried_paths: list[Path] = []
+
+    # 1. Try base_path first (original behavior)
     path = base_path / observer_ref
+    tried_paths.append(path)
     if path.exists():
         return path
 
     path_md = base_path / f"{observer_ref}.md"
+    tried_paths.append(path_md)
     if path_md.exists():
         return path_md
 
-    raise FileNotFoundError(f"Observer not found: {observer_ref} (tried {path} and {path_md})")
+    # 2. Try bundle base_paths from mention_resolver
+    # This handles cases where base_path is cwd() but the observer
+    # lives in an included bundle's directory
+    bundles: dict[str, Any] = getattr(mention_resolver, "bundles", {}) if mention_resolver else {}
+    if bundles:
+        for bundle_name, bundle in bundles.items():
+            bundle_base = getattr(bundle, "base_path", None)
+            if bundle_base:
+                bundle_path = bundle_base / observer_ref
+                if bundle_path not in tried_paths:
+                    tried_paths.append(bundle_path)
+                    if bundle_path.exists():
+                        logger.debug(f"Found observer in bundle '{bundle_name}': {bundle_path}")
+                        return bundle_path
+
+                bundle_path_md = bundle_base / f"{observer_ref}.md"
+                if bundle_path_md not in tried_paths:
+                    tried_paths.append(bundle_path_md)
+                    if bundle_path_md.exists():
+                        logger.debug(f"Found observer in bundle '{bundle_name}': {bundle_path_md}")
+                        return bundle_path_md
+
+    raise FileNotFoundError(
+        f"Observer not found: {observer_ref} (tried {len(tried_paths)} locations: "
+        f"{', '.join(str(p) for p in tried_paths[:4])}{'...' if len(tried_paths) > 4 else ''})"
+    )
 
 
 async def load_observer(
