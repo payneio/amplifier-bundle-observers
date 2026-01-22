@@ -1,0 +1,43 @@
+# Writing Review Observer Configuration
+#
+# Observers focused on written content quality.
+# Useful for documentation, emails, reports, and communications.
+
+hooks:
+  - module: hooks-observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations
+    config:
+      hooks:
+        - trigger: "orchestrator:complete"
+          priority: 5
+
+      execution:
+        mode: parallel_sync
+        max_concurrent: 4
+        timeout_per_observer: 45
+        on_timeout: skip
+
+      observers:
+        # Overall writing quality
+        - observer: observers/writing-quality
+          watch:
+            - type: conversation
+              include_reasoning: true
+
+        # Communication effectiveness
+        - observer: observers/communication-reviewer
+          watch:
+            - type: conversation
+              include_reasoning: true
+
+        # Argument strength
+        - observer: observers/argument-analyzer
+          watch:
+            - type: conversation
+              include_reasoning: true
+
+        # Keep it simple
+        - observer: observers/simplicity-guardian
+          watch:
+            - type: conversation
+              include_reasoning: true

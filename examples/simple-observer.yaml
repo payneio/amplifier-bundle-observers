@@ -4,7 +4,8 @@
 # Good starting point for basic code quality monitoring.
 
 hooks:
-  - module: amplifier_bundle_observers.hooks_observations
+  - module: hooks-observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations
     config:
       hooks:
         - trigger: "orchestrator:complete"
@@ -16,17 +17,7 @@ hooks:
         on_timeout: skip
 
       observers:
-        - name: "Code Reviewer"
-          role: "Reviews code for quality and correctness"
-          focus: |
-            Look for common code issues:
-            - Syntax errors and typos
-            - Unused imports and variables
-            - Missing error handling
-            - Code that could be simplified
-            - Potential bugs and edge cases
-          model: "claude-sonnet-4-20250514"
-          timeout: 30
+        - observer: observers/code-quality
           watch:
             - type: files
               paths:

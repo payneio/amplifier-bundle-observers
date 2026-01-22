@@ -1,12 +1,11 @@
 # Tiered Review Configuration
 #
-# Two-phase review: fast scan with Haiku, deep analysis with Sonnet.
-# Cost-effective approach that catches obvious issues quickly while
-# still providing thorough analysis.
+# Two-tier review: multiple fast Haiku observers + deep Sonnet analysis.
+# Cost-effective approach that catches issues quickly while providing thorough analysis.
 
 hooks:
   - module: hooks-observations
-    source: /data/repos/msft/amplifier-bundle-observers/amplifier_bundle_observers/hooks_observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations
     config:
       hooks:
         - trigger: "orchestrator:complete"
@@ -14,51 +13,43 @@ hooks:
 
       execution:
         mode: parallel_sync
-        max_concurrent: 2
+        max_concurrent: 5
         timeout_per_observer: 60
         on_timeout: skip
 
       observers:
-        # Phase 1: Fast scan with Haiku (cheap, quick)
-        - name: "Quick Scanner"
-          role: "Fast initial scan for obvious issues"
-          focus: |
-            Quick checks only - obvious errors:
-            - Syntax errors
-            - Missing imports
-            - Undefined variables
-            - Basic logic errors
-            - Typos in strings or names
-          model: "claude-3-5-haiku-latest"
-          timeout: 15
+        # Tier 1: Fast scans with Haiku (uses model from observer file)
+        - observer: observers/python-best-practices
           watch:
             - type: files
               paths:
                 - "**/*.py"
-          metadata:
-            tier: "fast"
-            cost: "low"
 
-        # Phase 2: Deep analysis with Sonnet (thorough)
-        - name: "Deep Reviewer"
-          role: "Comprehensive code and reasoning analysis"
-          focus: |
-            Thorough analysis including:
-            - Architecture and design patterns
-            - Security vulnerabilities
-            - Performance implications
-            - Edge cases and error handling
-            - Code maintainability
-            - Alignment between code and stated intent
-          model: "claude-sonnet-4-20250514"
-          timeout: 60
+        - observer: observers/error-handling
+          watch:
+            - type: files
+              paths:
+                - "**/*.py"
+
+        - observer: observers/secrets-scanner
+          watch:
+            - type: files
+              paths:
+                - "**/*"
+
+        # Tier 2: Deep analysis with Sonnet (override model for thorough review)
+        - observer: observers/security-auditor
+          model: claude-sonnet-4-20250514  # Override to more capable model
           watch:
             - type: files
               paths:
                 - "src/**/*.py"
             - type: conversation
               include_tool_calls: true
+
+        - observer: observers/architecture-reviewer
+          model: claude-sonnet-4-20250514
+          watch:
+            - type: conversation
+              include_tool_calls: true
               include_reasoning: true
-          metadata:
-            tier: "deep"
-            cost: "standard"

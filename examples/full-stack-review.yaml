@@ -1,0 +1,78 @@
+# Full-Stack Review Configuration
+#
+# Comprehensive review for full-stack web development.
+# Covers Python backend, TypeScript/React frontend, SQL, and infrastructure.
+
+hooks:
+  - module: hooks-observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations
+    config:
+      hooks:
+        - trigger: "orchestrator:complete"
+          priority: 5
+
+      execution:
+        mode: parallel_sync
+        max_concurrent: 8
+        timeout_per_observer: 45
+        on_timeout: skip
+
+      observers:
+        # Backend (Python)
+        - observer: observers/python-best-practices
+          watch:
+            - type: files
+              paths: ["**/*.py"]
+
+        - observer: observers/async-patterns
+          watch:
+            - type: files
+              paths: ["**/*.py"]
+
+        # Frontend (TypeScript/React)
+        - observer: observers/typescript-reviewer
+          watch:
+            - type: files
+              paths: ["**/*.ts", "**/*.tsx"]
+
+        - observer: observers/react-reviewer
+          watch:
+            - type: files
+              paths: ["**/*.tsx", "**/*.jsx"]
+
+        # Database
+        - observer: observers/sql-reviewer
+          watch:
+            - type: files
+              paths: ["**/*.py", "**/*.sql"]
+
+        # API Design
+        - observer: observers/api-design
+          watch:
+            - type: files
+              paths: ["**/routes/**", "**/api/**", "**/*.py"]
+
+        # Security (all code)
+        - observer: observers/security-auditor
+          model: claude-sonnet-4-20250514  # Use stronger model for security
+          watch:
+            - type: files
+              paths: ["**/*"]
+
+        # Accessibility (frontend)
+        - observer: observers/accessibility-checker
+          watch:
+            - type: files
+              paths: ["**/*.tsx", "**/*.jsx", "**/*.html"]
+
+        # Config and DevOps
+        - observer: observers/config-reviewer
+          watch:
+            - type: files
+              paths:
+                - "**/*.yaml"
+                - "**/*.yml"
+                - "**/*.json"
+                - "**/*.toml"
+                - "**/Dockerfile"
+                - "**/.env*"
