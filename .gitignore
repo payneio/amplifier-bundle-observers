@@ -4,3 +4,6 @@ test-project
 __pycache__/
 *.pyc
 .amplifier/
+session-analysis
+notebooks/.venv
+notebooks/.ipynb_checkpoints

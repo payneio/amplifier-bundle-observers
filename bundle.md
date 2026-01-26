@@ -3,6 +3,25 @@ bundle:
   name: observers
   version: 0.1.1
   description: Automated code and conversation review through specialized AI observers
+  sub_bundles:
+    - name: systems-thinking
+      path: examples/systems-thinking.md
+      description: Observers for systemic analysis, architecture discussions, and decision-making
+    - name: simple-observer
+      path: examples/simple-observer.md
+      description: Minimal setup with a single code quality observer
+    - name: multi-observer
+      path: examples/multi-observer.md
+      description: Multiple specialized observers for comprehensive code review
+    - name: full-stack-review
+      path: examples/full-stack-review.md
+      description: Comprehensive review for full-stack web development
+    - name: tiered-review
+      path: examples/tiered-review.md
+      description: Two-tier review - fast Haiku scans + deep Sonnet analysis
+    - name: writing-review
+      path: examples/writing-review.md
+      description: Observers for written content quality
 
 includes:
   - bundle: git+https://github.com/microsoft/amplifier-foundation@main
