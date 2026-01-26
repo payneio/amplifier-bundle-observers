@@ -1,272 +1,219 @@
 # Amplifier Observer Bundle
 
-Automated code and conversation review through specialized AI observers.
+Get automatic file and conversation review as you work, with specialized AI observers that watch for issues and provide actionable feedback.
 
-## Overview
+## What This Does For You
 
-This bundle provides a hook-based observer system that automatically reviews code and conversations, creating actionable observations with severity levels.
+While you're working with Amplifier, observers run automatically in the background, reviewing your files and conversations. They catch issues early, suggest improvements, and help you maintain quality without interrupting your flow.
 
-**Components:**
+**Think of observers as expert colleagues looking over your shoulder** - a security expert watching for vulnerabilities, a performance specialist checking for bottlenecks, a systems thinker surfacing unintended consequences.
 
-| Module | Purpose |
-|--------|---------|
-| `tool-observations` | State management for observations (CRUD operations) |
-| `hooks-observations` | Observer orchestration triggered by hook events |
-| `hooks-observations-display` | Visualization of observation status |
+## How It Works
 
-## Installation
+1. **You work normally** - Write code, have conversations, make decisions
+2. **Observers activate automatically** - After each response, observers check for changes
+3. **You get targeted feedback** - Observations appear with severity levels (critical, high, medium, low, info)
+4. **You address what matters** - Focus on high-severity issues, handle others when convenient
 
-```bash
-pip install amplifier-bundle-observers
-```
+## Quick Start
 
-Or for development:
+**Important**: This bundle must be used as a **top-level bundle** (loaded directly with `amplifier run`). It cannot be included in other bundles because it provides an orchestrator.
 
-```bash
-pip install -e .
-```
+### Use a Pre-Built Example
 
-## Usage
-
-Include in your bundle:
-
-```yaml
-includes:
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-observers@main
-```
-
-Or configure observers directly:
-
-```yaml
-hooks:
-  - module: hooks-observations
-    config:
-      hooks:
-        - trigger: "orchestrator:complete"
-          priority: 5
-      observers:
-        - observer: "@observers:observers/security-auditor"
-          watch:
-            - type: files
-              paths: ["**/*.py"]
-
-tools:
-  - module: tool-observations
-```
-
-See `bundle.md` for full documentation.
-
-## Example Bundles
-
-Ready-to-use bundles in `examples/`:
-
-| Bundle | Use Case |
-|--------|----------|
-| `simple-observer.md` | Single code quality observer for Python |
-| `multi-observer.md` | Multiple specialized observers (security, performance, tests) |
-| `systems-thinking.md` | Systemic analysis for architecture and decisions |
-| `writing-review.md` | Written content quality (docs, emails, reports) |
-| `tiered-review.md` | Fast Haiku scans + deep Sonnet analysis |
-| `full-stack-review.md` | Comprehensive full-stack web development |
-
-### Quick Start
+We've created 6 ready-to-use bundles for common scenarios:
 
 ```bash
-# Register an example bundle (use subdirectory= format for bundles in subdirectories)
+# Systems thinking for architecture and decision-making
 amplifier bundle add \
   "git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=examples/systems-thinking.md" \
   --name systems-thinking
-
-# Run with it
 amplifier run -B systems-thinking
+
+# Code quality for Python development
+amplifier bundle add \
+  "git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=examples/simple-observer.md" \
+  --name code-review
+amplifier run -B code-review
+
+# Full-stack web development review
+amplifier bundle add \
+  "git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=examples/full-stack-review.md" \
+  --name full-stack
+amplifier run -B full-stack
 ```
 
-Or use directly from GitHub:
+Or run directly without registering:
 
 ```bash
 amplifier run --bundle "git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=examples/systems-thinking.md"
 ```
 
-**Important**: Use `#subdirectory=path/to/bundle.md` format for bundles in subdirectories, not `#path/to/bundle.md`. Without the `subdirectory=` keyword, Amplifier returns the root bundle instead of the subdirectory bundle.
+## Available Examples
 
-## Observer Reference Patterns
+| Bundle | Best For |
+|--------|----------|
+| **simple-observer** | Minimal setup - just code quality for Python |
+| **multi-observer** | Comprehensive code review (security, performance, tests) |
+| **systems-thinking** | Architecture discussions and complex decisions |
+| **writing-review** | Documentation, emails, and written content |
+| **tiered-review** | Fast scans + deep analysis (Haiku + Sonnet) |
+| **full-stack-review** | Complete web development review (Python, TypeScript, React, SQL, API design) |
 
-Observer references use the same `@bundle:path` format as agents and context files in Amplifier, resolved via the `mention_resolver` capability:
+Each example is ready to use as-is or copy and customize for your needs.
 
-```yaml
-observers:
-  # Cross-bundle reference (resolved via mention_resolver)
-  - observer: "@observers:observers/security-auditor"
-    watch:
-      - type: files
-        paths: ["**/*.py"]
+## 50+ Pre-Built Observers
 
-  # From another bundle in your includes
-  - observer: "@company:observers/compliance-checker"
-    watch:
-      - type: files
-        paths: ["**/*"]
+The `observers/` directory contains specialized observers you can reference in your own bundles:
 
-  # Relative path (resolved from base_path)
-  - observer: "observers/custom-rules"
-    watch:
-      - type: files
-        paths: ["src/**/*.py"]
+### Code & Technical
+- `code-quality` - Code smells, long functions, complexity
+- `python-best-practices` - Python-specific patterns
+- `typescript-reviewer` - TypeScript and type safety
+- `react-reviewer` - React patterns and hooks
+- `sql-reviewer` - SQL patterns and query optimization
+- `async-patterns` - Async/await usage and concurrency
+- `error-handling` - Exception handling patterns
+- `test-quality` - Test coverage and assertions
 
-  # Local file
-  - observer: "./my-custom-observer.md"
-    watch:
-      - type: conversation
-```
+### Security & Reliability
+- `security-auditor` - Vulnerabilities and unsafe patterns
+- `security-design-reviewer` - Security architecture
+- `secrets-scanner` - Hardcoded credentials and API keys
+- `performance-reviewer` - Bottlenecks and optimization
+- `reliability-reviewer` - Fault tolerance and resilience
+- `dependency-reviewer` - Dependency health and risks
 
-**Reference patterns:**
-| Pattern | Resolution |
-|---------|------------|
-| `@bundle:path/to/observer` | Via `mention_resolver` capability (same as agents) |
-| `path/to/observer` | Relative to base_path |
-| `./local/observer.md` | Local file path |
+### Architecture & Design
+- `architecture-reviewer` - System structure and modularity
+- `api-design` - API contracts and consistency
+- `data-design-reviewer` - Data models and schemas
+- `boundary-analyzer` - Module boundaries and coupling
+- `simplicity-guardian` - Unnecessary complexity
+- `scalability-reviewer` - Growth and scaling concerns
 
-The `mention_resolver` is automatically available when bundles are composed, so any bundle in your `includes` can be referenced.
+### Systems Thinking
+- `systems-dynamics` - Feedback loops and system behavior
+- `second-order-effects` - Unintended consequences
+- `leverage-points` - High-impact interventions
+- `bias-detector` - Cognitive biases in reasoning
+- `stakeholder-analyzer` - People and incentives
+- `mental-models` - Assumptions and frameworks
+- `root-cause-analyzer` - Problem diagnosis
 
-## Shadow Environment Testing
+### Documentation & Communication
+- `writing-quality` - Clarity, tone, structure
+- `documentation-checker` - Docs completeness and accuracy
+- `communication-reviewer` - Team communication patterns
+- `accessibility-checker` - Inclusive design and content
+- `meeting-notes` - Meeting effectiveness and action items
 
-For reproducible integration testing, use the shadow environment to test observers in isolation.
+### Process & Planning
+- `task-completion` - Task tracking and follow-through
+- `planning-reviewer` - Planning quality and realism
+- `decision-reviewer` - Decision-making process
+- `tradeoff-analyzer` - Trade-off analysis
+- `requirements-analyzer` - Requirements clarity
+- `research-reviewer` - Research methodology
 
-### Quick Test
+### Operations & Deployment
+- `operational-reviewer` - Deployment and monitoring
+- `migration-reviewer` - Migration safety and planning
+- `integration-reviewer` - Integration patterns
+- `config-reviewer` - Configuration management
+- `git-hygiene` - Git workflow and commit quality
+- `cost-reviewer` - Cost implications and optimization
 
-From an Amplifier session:
+**See each observer file in `observers/` for specific focus areas and severity guidelines.**
 
-```
-Run a shadow test for amplifier-bundle-observers:
-1. Create shadow with local source from ~/repos/amplifier-bundle-observers
-2. Install the package
-3. Test with the buggy code in tests/shadow/buggy_code.py
-4. Verify observations are created
-```
+## Building Your Own Bundle
 
-### Manual Shadow Test
-
-1. **Create shadow environment:**
-   ```bash
-   # From Amplifier session
-   shadow(operation="create", local_sources=[
-       "~/repos/amplifier-bundle-observers:microsoft/amplifier-bundle-observers"
-   ])
-   ```
-
-2. **Set up inside shadow:**
-   ```bash
-   shadow exec <id> "uv tool install git+https://github.com/microsoft/amplifier"
-   shadow exec <id> "cd /home/amplifier && git clone https://github.com/microsoft/amplifier-bundle-observers"
-   shadow exec <id> "uv tool install --force git+https://github.com/microsoft/amplifier --with file:///home/amplifier/amplifier-bundle-observers"
-   shadow exec <id> "amplifier provider install -q"
-   ```
-
-3. **Create test bundle:**
-   ```bash
-   shadow exec <id> "cat > /home/amplifier/test-bundle.md << 'EOF'
-   ---
-   bundle:
-     name: observer-test
-     version: 0.1.0
-   includes:
-     - bundle: git+https://github.com/microsoft/amplifier-foundation@main
-   tools:
-     - module: tool-observations
-       source: /home/amplifier/amplifier-bundle-observers/amplifier_bundle_observers/tool_observations
-   hooks:
-     - module: hooks-observations
-       source: /home/amplifier/amplifier-bundle-observers/amplifier_bundle_observers/hooks_observations
-       config:
-         hooks:
-           - trigger: \"orchestrator:complete\"
-         observers:
-           - name: \"Scanner\"
-             role: \"Find bugs and security issues\"
-             focus: \"Hardcoded credentials, SQL injection, missing error handling\"
-             model: \"claude-3-5-haiku-latest\"
-             timeout: 30
-             watch:
-               - type: files
-                 paths: [\"**/*.py\"]
-   ---
-   Test bundle
-   EOF"
-   
-   shadow exec <id> "amplifier bundle add /home/amplifier/test-bundle.md --name observer-test"
-   ```
-
-4. **Run test with buggy code:**
-   ```bash
-   shadow exec <id> "cp /home/amplifier/amplifier-bundle-observers/tests/shadow/buggy_code.py /home/amplifier/"
-   shadow exec <id> "cd /home/amplifier && amplifier run -B observer-test --mode single 'Read buggy_code.py and identify issues'"
-   ```
-
-5. **Verify observations in same session:**
-   The observer hook triggers on `orchestrator:complete` and creates observations within the session.
-
-### Test Files
-
-| File | Purpose |
-|------|---------|
-| `tests/shadow/buggy_code.py` | Intentionally buggy Python code with security issues |
-| `tests/shadow/shadow-test-bundle.md` | Pre-configured bundle for shadow testing |
-| `tests/shadow/README.md` | Detailed shadow testing instructions |
-
-### Expected Results
-
-The `buggy_code.py` file contains intentional issues:
-
-| Category | Issues |
-|----------|--------|
-| **Critical** | SQL injection, eval() on user input, hardcoded credentials |
-| **High** | Division by zero risk, unclosed file handle |
-| **Medium** | Bare except, global mutable state |
-| **Low** | Unused imports, wildcard import |
-
-A successful test shows:
-- Observer spawns on `orchestrator:complete` event
-- Observer analyzes code via direct provider call
-- Observations created with appropriate severities
-
-## Development
+Copy an example and customize:
 
 ```bash
-# Run unit tests
-uv run pytest tests/ -v
+# Copy an example to start
+cp examples/simple-observer.md my-custom-bundle.md
 
-# Run with coverage
-uv run pytest tests/ --cov=amplifier_bundle_observers
+# Edit the observers section to use the ones you need
+```
 
-# Type checking
-uv run pyright amplifier_bundle_observers/
+Example configuration:
+
+```yaml
+hooks:
+  - module: hooks-observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/hooks-observations
+    config:
+      hooks:
+        - trigger: "orchestrator:complete"
+          priority: 5
+      observers:
+        # Reference observers from this bundle
+        - observer: "@observers:observers/security-auditor"
+          watch:
+            - type: files
+              paths: ["**/*.py"]
+        
+        - observer: "@observers:observers/performance-reviewer"
+          watch:
+            - type: files
+              paths: ["src/**/*.py"]
+
+tools:
+  - module: tool-observations
+    source: git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=modules/tool-observations
+```
+
+## How Observations Work
+
+Observers create observations with:
+- **Severity**: critical, high, medium, low, info
+- **Category**: What type of issue (security, performance, etc.)
+- **Message**: What's wrong and why it matters
+- **Location**: File and line number (for code observations)
+- **Suggestion**: How to fix it
+
+You can query observations during your session:
+
+```
+"Show me high-severity observations"
+"What security issues did the observer find?"
+"List all observations for auth.py"
+```
+
+## Observer Types
+
+### File Observers
+Watch for changes to specific files and review them:
+
+```yaml
+watch:
+  - type: files
+    paths: ["**/*.py", "src/**/*.ts"]
+```
+
+### Conversation Observers
+Analyze discussions, decisions, and reasoning:
+
+```yaml
+watch:
+  - type: conversation
+    include_reasoning: true  # See the thinking process
 ```
 
 ## Architecture
 
-```
-orchestrator:complete event
-        │
-        ▼
-┌─────────────────────┐
-│  hooks-observations │
-│  - Change detection │
-│  - Observer config  │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  Direct LLM call    │
-│  via provider API   │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  tool-observations  │
-│  - Create/store     │
-│  - Query/filter     │
-└─────────────────────┘
-```
+Observers use a hook-based architecture:
+
+1. **hooks-observations** - Orchestrates observers when events trigger
+2. **tool-observations** - Manages observation storage and querying
+3. **Observer definitions** - Specialized review prompts in `observers/`
+
+When `orchestrator:complete` fires, the hook:
+- Detects what changed (files or conversation)
+- Activates matching observers
+- Each observer calls the LLM directly to analyze
+- Observations are stored for later reference
 
 ## License
 
