@@ -72,11 +72,10 @@ Ready-to-use bundles in `examples/`:
 ### Quick Start
 
 ```bash
-# Clone the repo (or use git+ URL)
-git clone https://github.com/payneio/amplifier-bundle-observers.git
-
-# Register an example bundle
-amplifier bundle add amplifier-bundle-observers/examples/systems-thinking.md --name systems-thinking
+# Register an example bundle (use subdirectory= format for bundles in subdirectories)
+amplifier bundle add \
+  "git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=examples/systems-thinking.md" \
+  --name systems-thinking
 
 # Run with it
 amplifier run -B systems-thinking
@@ -85,8 +84,10 @@ amplifier run -B systems-thinking
 Or use directly from GitHub:
 
 ```bash
-amplifier run --bundle git+https://github.com/payneio/amplifier-bundle-observers@main#examples/systems-thinking.md
+amplifier run --bundle "git+https://github.com/payneio/amplifier-bundle-observers@main#subdirectory=examples/systems-thinking.md"
 ```
+
+**Important**: Use `#subdirectory=path/to/bundle.md` format for bundles in subdirectories, not `#path/to/bundle.md`. Without the `subdirectory=` keyword, Amplifier returns the root bundle instead of the subdirectory bundle.
 
 ## Observer Reference Patterns
 
